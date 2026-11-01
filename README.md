@@ -148,7 +148,7 @@ FMOD Ex).
   exists for that server, and the WarcraftXL features it ports are Dinkledork's work.
 - **wowdecomp**, the C++ reconstruction of the 3.3.5a client this is built on, is the work of
   **[Saty](https://github.com/SatyPardus/wowdecomp)**, **[STRHercules](https://github.com/STRHercules/wowdecomp)** and
-  **RosemynH**, and of the contributors to their forks. The decompilation, the original-address tagging and the
+  **[RosemyneH](https://github.com/RosemyneH/wowdecomp)**, and of the contributors to their forks. The decompilation, the original-address tagging and the
   engine this project builds on are theirs.
 - [binana](https://github.com/thunderbrewhq/binana), [thunderbrew](https://github.com/thunderbrewhq/thunderbrew) and
   [whoa](https://github.com/whoahq/whoa), which wowdecomp credits as well
