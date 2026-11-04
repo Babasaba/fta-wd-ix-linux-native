@@ -526,12 +526,57 @@ namespace wxl::modern::assets::textures::blp
         return true;
     }
 
+    static bool DecodeRawMip(std::span<const uint8_t> in, RgbaImage& img)
+    {
+        const uint8_t* b = in.data();
+        const uint32_t n = static_cast<uint32_t>(in.size());
+        if (n < 0x94 || rd32(b) != kMagicBlp2 || rd32(b + 4) != 1) return false;
+        if (b[kEncoding] != 3) return false;
+
+        const uint32_t width = rd32(b + kWidth), height = rd32(b + kHeight);
+        const uint8_t srcAlpha = b[kAlphaDepth];
+        if (width == 0 || height == 0 || width > 16384 || height > 16384) return false;
+
+        const uint32_t mipOff0 = rd32(b + kMipOffsets);
+        const uint32_t mipSize0 = rd32(b + kMipSizes);
+        if (mipSize0 == 0 || mipOff0 == 0 || mipOff0 > n || mipSize0 > n - mipOff0) return false;
+
+        const uint64_t px0 = uint64_t(width) * height;
+        if (px0 == 0) return false;
+        const uint32_t bpp = static_cast<uint32_t>(mipSize0 / px0);
+        if (bpp != 3 && bpp != 4) return false;
+
+        img.w = width;
+        img.h = height;
+        img.px.resize(px0 * 4);
+
+        const uint8_t* src = b + mipOff0;
+        uint8_t* dst = img.px.data();
+        for (uint64_t i = 0; i < px0; ++i)
+        {
+            const uint8_t* p = src + i * bpp;
+            dst[i * 4 + 0] = p[2];                                      // Red
+            dst[i * 4 + 1] = p[1];                                      // Green
+            dst[i * 4 + 2] = p[0];                                      // Blue
+            dst[i * 4 + 3] = (bpp == 4 && srcAlpha != 0) ? p[3] : 255;  // Alpha
+        }
+        return true;
+    }
+
     bool TextureComponentToPaletted(std::span<const uint8_t> in, std::vector<uint8_t>& out)
     {
         RgbaImage img;
-        // The host validates the active client decode limit before reaching this conversion. Always decode
-        // mip 0 here: compatibility conversion must not double as a hidden armor-quality setting.
-        if (!DecodeDxtMip(in, img, 0)) return false;
+        const uint8_t* b = in.data();
+        if (in.size() >= 0x94 && rd32(b) == kMagicBlp2 && b[kEncoding] == 3)
+        {
+            if (!DecodeRawMip(in, img)) return false;
+        }
+        else
+        {
+            // The host validates the active client decode limit before reaching this conversion. Always decode
+            // mip 0 here: compatibility conversion must not double as a hidden armor-quality setting.
+            if (!DecodeDxtMip(in, img, 0)) return false;
+        }
 
         return EncodePalettedBlp(img, out);
     }

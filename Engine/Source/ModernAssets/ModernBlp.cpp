@@ -38,10 +38,10 @@ bool EndsWithCi(std::string_view value, std::string_view suffix) {
 } // namespace
 
 ModernBlpTransformResult TransformModernBlp(const char* name, const void* source, uint32_t sourceSize,
-                                            std::vector<uint8_t>& output) {
+                                            std::vector<uint8_t>& output, bool forcePaletted) {
     output.clear();
     const std::string_view path = name ? std::string_view(name) : std::string_view();
-    if (!source || !EndsWithCi(path, ".blp")) {
+    if (!source || (!forcePaletted && !EndsWithCi(path, ".blp"))) {
         return ModernBlpTransformResult::NotApplicable;
     }
 
@@ -50,6 +50,9 @@ ModernBlpTransformResult TransformModernBlp(const char* name, const void* source
         return ModernBlpTransformResult::Rejected;
     }
     const uint32_t magic = ReadU32(raw.data());
+    const bool component = forcePaletted ||
+                           StartsWithCi(path, "item\\texturecomponents\\") ||
+                           StartsWithCi(path, "item/texturecomponents/");
     if (magic == kMagicDds) {
         // A .dds sibling served in place of a missing .blp (see SFile::OpenEx). Plain luminance
         // alpha stays off: that option is for FX sprites the M3 drop-in flow selects per model.
@@ -57,9 +60,17 @@ ModernBlpTransformResult TransformModernBlp(const char* name, const void* source
         if (raw.size() < 20 || ReadU32(raw.data() + 12) > kSafeTextureEdge || ReadU32(raw.data() + 16) > kSafeTextureEdge) {
             return ModernBlpTransformResult::Rejected;
         }
-        return wxl::modern::assets::textures::dds::DdsToBlp(raw.data(), raw.size(), output)
-            ? ModernBlpTransformResult::Transformed
-            : ModernBlpTransformResult::Rejected;
+        std::vector<uint8_t> intermediate;
+        if (!wxl::modern::assets::textures::dds::DdsToBlp(raw.data(), raw.size(), intermediate)) {
+            return ModernBlpTransformResult::Rejected;
+        }
+        if (component) {
+            return wxl::modern::assets::textures::blp::TextureComponentToPaletted(intermediate, output)
+                ? ModernBlpTransformResult::Transformed
+                : ModernBlpTransformResult::Rejected;
+        }
+        output = std::move(intermediate);
+        return ModernBlpTransformResult::Transformed;
     }
     if (magic == kMagicBlp1) {
         return ModernBlpTransformResult::NotApplicable;
@@ -76,14 +87,10 @@ ModernBlpTransformResult TransformModernBlp(const char* name, const void* source
         return ModernBlpTransformResult::Rejected;
     }
 
-    const bool component = StartsWithCi(path, "item\\texturecomponents\\");
-    if (component && encoding == 2) {
+    if (component && (encoding == 2 || encoding == 3)) {
         return wxl::modern::assets::textures::blp::TextureComponentToPaletted(raw, output)
             ? ModernBlpTransformResult::Transformed
             : ModernBlpTransformResult::Rejected;
-    }
-    if (component && encoding == 3) {
-        return ModernBlpTransformResult::Rejected;
     }
     if (encoding == 3) {
         return wxl::modern::assets::textures::blp::TranscodeBlp(raw, output)

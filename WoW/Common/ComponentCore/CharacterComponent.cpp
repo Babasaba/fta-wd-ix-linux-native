@@ -10,6 +10,7 @@
 #include <new>
 #include <typeinfo>
 #if defined(WOWDECOMP_LINUX)
+#include <cstdlib>
 #include <strings.h>
 #endif
 #if defined(_MSC_VER)
@@ -3163,8 +3164,18 @@ void CCharacterComponent::Paste(HTEXTURECACHE texture, MipBits* dstMips, const C
     BlpPalPixel* pal = TextureCacheGetPal(texture);
 
     if (!pal) {
+#if defined(WOWDECOMP_LINUX)
+        static const bool debugFallbackGreen = (getenv("WXL_DEBUG_FALLBACK_GREEN") != nullptr);
+        if (debugFallbackGreen) {
+            CCharacterComponent::PasteCrappyGreen(dstMips, pos, stride, size, srcInfo, srcMipLevel, -static_cast<int32_t>(srcMipLevel));
+            return;
+        }
+        WxlNativeDiagnostic("character-paste: missing palette for %s (skipping green fallback)", texture ? texture->m_fileName : "null");
+        return;
+#else
         CCharacterComponent::PasteCrappyGreen(dstMips, pos, stride, size, srcInfo, srcMipLevel, -static_cast<int32_t>(srcMipLevel));
         return;
+#endif
     }
 
     switch (srcInfo.m_alphaSize) {

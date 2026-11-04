@@ -1,6 +1,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <new>
+#if defined(WOWDECOMP_LINUX)
+#include <vector>
+#include "Engine/Source/ModernAssets/ModernBlp.h"
+#include "Engine/Source/ModernAssets/NativeDiagnostic.h"
+#endif
 #include "WoW/Common/TextureCache.h"
 #include "Engine/Source/Base/ObjectAlloc.h"
 #include "Engine/Source/BLPFile/blp.h"
@@ -35,9 +40,30 @@ static void FreeRequest(CAsyncObject* object) {
 static void LoadSuccessCallback(void* param) {
     CACHEENTRY* entry = static_cast<CACHEENTRY*>(param);
 
+    uint32_t sourceSize = entry->m_asyncObject ? entry->m_asyncObject->m_size : static_cast<uint32_t>(entry->m_size);
     AsyncFileReadDestroyObject(entry->m_asyncObject);
-    BLPHeader* header = entry->m_data;
     entry->m_asyncObject = nullptr;
+
+#if defined(WOWDECOMP_LINUX)
+    if (entry->m_data && sourceSize) {
+        std::vector<uint8_t> converted;
+        ModernBlpTransformResult conversion = TransformModernBlp(entry->m_fileName, entry->m_data, sourceSize, converted, true);
+        if (conversion == ModernBlpTransformResult::Transformed) {
+            BLPHeader* replacement = static_cast<BLPHeader*>(SMemAlloc(converted.size(), __FILE__, __LINE__, 0));
+            if (replacement) {
+                memcpy(replacement, converted.data(), converted.size());
+                SMemFree(entry->m_data, __FILE__, __LINE__, 0);
+                entry->m_data = replacement;
+                entry->m_size = static_cast<uint32_t>(converted.size() & 0xFFFFF);
+                WxlNativeDiagnostic("modern-blp (TextureCache): transformed %s (%zu bytes)", entry->m_fileName, converted.size());
+            }
+        } else if (conversion == ModernBlpTransformResult::Rejected) {
+            WxlNativeDiagnostic("modern-blp (TextureCache): rejected %s", entry->m_fileName);
+        }
+    }
+#endif
+
+    BLPHeader* header = entry->m_data;
     CBLPFile::ValidateHeader(*header);
 
     entry->m_info.m_alphaSize = header->m_alphaSize;
@@ -68,10 +94,11 @@ int32_t CACHEENTRY::LoadTexture() {
     this->m_asyncObject->m_userArg = this;
     this->m_asyncObject->m_userPostloadCallback = reinterpret_cast<void*>(&LoadSuccessCallback);
     this->m_asyncObject->m_file = file;
-    this->m_asyncObject->m_size = SFileGetFileSize(file, nullptr);
+    uint32_t fileSize = SFileGetFileSize(file, nullptr);
+    this->m_asyncObject->m_size = fileSize;
     this->m_asyncObject->m_priority = 130;
-    this->m_size = this->m_asyncObject->m_size;
-    this->m_data = static_cast<BLPHeader*>(SMemAlloc(this->m_size, __FILE__, __LINE__, 0));
+    this->m_size = static_cast<uint32_t>(fileSize & 0xFFFFF);
+    this->m_data = static_cast<BLPHeader*>(SMemAlloc(fileSize, __FILE__, __LINE__, 0));
     this->m_asyncObject->m_buffer = this->m_data;
     AsyncFileReadObject(this->m_asyncObject, 0);
 
