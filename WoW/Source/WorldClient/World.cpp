@@ -3660,6 +3660,20 @@ void CWorldScene::CullDoodads(CSortEntry* entry, uint16_t fadeLevel) {
         }
 
         if (visible) {
+            // T-CLI-10: Sub-pixel screen-size culling for distant static doodads.
+            // Skips tiny clutter (pebbles, mini-mushrooms) whose projected pixel diameter
+            // is under ~6 pixels on a 1440p viewport at distance (> 15m).
+            // Landmark trees and giant mushrooms have large radii (>= 3m) and are never culled.
+            float dx = doodadDef->m_sphere.c.x - CWorldScene::s_activeWorldView.x;
+            float dy = doodadDef->m_sphere.c.y - CWorldScene::s_activeWorldView.y;
+            float dz = doodadDef->m_sphere.c.z - CWorldScene::s_activeWorldView.z;
+            float distSq = dx * dx + dy * dy + dz * dz;
+            if (distSq > 225.0f && (doodadDef->m_sphere.r * doodadDef->m_sphere.r < distSq * 2.5e-5f)) {
+                visible = false;
+            }
+        }
+
+        if (visible) {
             CWorldScene::AddDoodadDefModelToModelScene(doodadDef);
             CWorldScene::nDoodadsRendered++;
         } else if ((doodadDef->m_staticFlags & 0x400) || (doodadDef->m_sphere.c.x - CWorldScene::s_activeWorldView.x) * (doodadDef->m_sphere.c.x - CWorldScene::s_activeWorldView.x) + ((doodadDef->m_sphere.c.y - CWorldScene::s_activeWorldView.y) * (doodadDef->m_sphere.c.y - CWorldScene::s_activeWorldView.y) + (doodadDef->m_sphere.c.z - CWorldScene::s_activeWorldView.z) * (doodadDef->m_sphere.c.z - CWorldScene::s_activeWorldView.z)) < 100.0f) {
@@ -3926,7 +3940,19 @@ void CWorldScene::CullDoodadsExterior(TSList<CMapBaseObjLink, TSGetExplicitLink<
                     doodadDef->m_culled = 0;
                 }
 
-                if (!culled && CWorldOcclusion::QueryBuffer(doodadDef->m_sphere.c, doodadDef->m_sphere.r, 0x10) < 2) {
+                bool visible = !culled && CWorldOcclusion::QueryBuffer(doodadDef->m_sphere.c, doodadDef->m_sphere.r, 0x10) < 2;
+                if (visible) {
+                    // T-CLI-10: Sub-pixel screen-size culling for distant static doodads.
+                    float dx = doodadDef->m_sphere.c.x - CWorldScene::s_activeWorldView.x;
+                    float dy = doodadDef->m_sphere.c.y - CWorldScene::s_activeWorldView.y;
+                    float dz = doodadDef->m_sphere.c.z - CWorldScene::s_activeWorldView.z;
+                    float distSq = dx * dx + dy * dy + dz * dz;
+                    if (distSq > 225.0f && (doodadDef->m_sphere.r * doodadDef->m_sphere.r < distSq * 2.5e-5f)) {
+                        visible = false;
+                    }
+                }
+
+                if (visible) {
                     CWorldScene::AddDoodadDefModelToModelScene(doodadDef);
                     CWorldScene::nDoodadsRendered++;
                 } else {
