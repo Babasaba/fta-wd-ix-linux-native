@@ -1825,9 +1825,9 @@ int32_t CM2Scene::Animate(const C3Vector& cameraPos) {
         }
 
         // Screen-size culling for distant sub-pixel doodads:
-        // Only applies to static world doodads (m_flags & 0x20) without attachments.
+        // Applies to static world doodads (m_fFlags & 0x8000) without attachments.
         // Never culls units, player characters, interactive items, or anything close.
-        if ((model->m_flags & 0x20) && !model->m_attachParent) {
+        if ((model->m_fFlags & 0x8000) && !model->m_attachParent) {
             const float d0 = model->m_matrixF4.d0;
             const float d1 = model->m_matrixF4.d1;
             const float d2 = model->m_matrixF4.d2;
