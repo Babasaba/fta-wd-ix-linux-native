@@ -56,7 +56,25 @@ struct Pair {
     const PackEntry* pixel = nullptr;
 };
 std::map<std::pair<const PackEntry*, const PackEntry*>, Pair> pairs;
-struct EntryLookup { const CGxShader* shader; const uint8_t* code; size_t size; const PackEntry* entry; bool pixel; uint32_t layers; };
+
+struct PairCacheSlot {
+    const CGxShader* vertex = nullptr;
+    const uint8_t* vcode = nullptr;
+    size_t vsize = 0;
+    const CGxShader* pixel = nullptr;
+    const uint8_t* pcode = nullptr;
+    size_t psize = 0;
+    uint32_t layers = 0;
+    const Pair* pair = nullptr;
+    bool valid = false;
+};
+std::array<PairCacheSlot, 64> pairCache{};
+
+IDirect3DVertexDeclaration9* lastCheckedDecl = nullptr;
+bool lastDeclValid = false;
+IDirect3DVertexBuffer9* lastCheckedVb0 = nullptr;
+UINT lastVb0Size = 0;
+
 struct Mesh { std::weak_ptr<ModernWmoGroupVisuals> source; Com<IDirect3DVertexBuffer9> vb; uint64_t lastUse = 0; };
 std::unordered_map<const ModernWmoGroupVisuals*, Mesh> meshes;
 struct Textures {
@@ -122,7 +140,9 @@ bool WxlWmoPackHasVertexVariant(const uint32_t* code, size_t bytes) {
 namespace {
 void ClearGpu() {
     RestoreTextures();
-    pairs.clear(); meshes.clear(); textureSets.clear(); declaration.reset();
+    pairs.clear(); pairCache.fill({}); meshes.clear(); textureSets.clear(); declaration.reset();
+    lastCheckedDecl = nullptr; lastDeclValid = false;
+    lastCheckedVb0 = nullptr; lastVb0Size = 0;
     device = nullptr;
 }
 
@@ -154,13 +174,35 @@ bool Code(const CGxShader* shader, const uint8_t*& bytes, size_t& size) {
 const Pair* ShaderPair(IDirect3DDevice9* dev, CGxShader* vertex, CGxShader* pixel, uint32_t layers) {
     const uint8_t *vcode, *pcode; size_t vsize, psize;
     if (!Code(vertex, vcode, vsize) || !Code(pixel, pcode, psize)) return nullptr;
+
+    const size_t slotIndex = ((reinterpret_cast<uintptr_t>(vertex) >> 4) ^
+                              (reinterpret_cast<uintptr_t>(pixel) >> 2) ^
+                              layers) & (pairCache.size() - 1);
+    auto& slot = pairCache[slotIndex];
+    if (slot.valid && slot.vertex == vertex && slot.vcode == vcode && slot.vsize == vsize &&
+        slot.pixel == pixel && slot.pcode == pcode && slot.psize == psize && slot.layers == layers) {
+        if (!slot.pair) { ++shaderMisses; return nullptr; }
+        return slot.pair;
+    }
+
     const PackEntry* vsEntry = pack.FindVertex(vcode, vsize);
-    if (!vsEntry) { ++shaderMisses; return nullptr; }
+    if (!vsEntry) {
+        slot = {vertex, vcode, vsize, pixel, pcode, psize, layers, nullptr, true};
+        ++shaderMisses;
+        return nullptr;
+    }
     const PackEntry* psEntry = pack.FindPixel(pcode, psize, layers, *vsEntry);
-    if (!psEntry) { ++shaderMisses; return nullptr; }
+    if (!psEntry) {
+        slot = {vertex, vcode, vsize, pixel, pcode, psize, layers, nullptr, true};
+        ++shaderMisses;
+        return nullptr;
+    }
     const auto key = std::make_pair(vsEntry, psEntry);
     auto found = pairs.find(key);
-    if (found != pairs.end()) return &found->second;
+    if (found != pairs.end()) {
+        slot = {vertex, vcode, vsize, pixel, pcode, psize, layers, &found->second, true};
+        return &found->second;
+    }
     if (pairs.size() >= kMaxPairs) return nullptr;
     IDirect3DVertexShader9* v = nullptr; IDirect3DPixelShader9* p = nullptr;
     if (FAILED(dev->CreateVertexShader(vsEntry->bytecode.data(), &v))) return nullptr;
@@ -168,6 +210,7 @@ const Pair* ShaderPair(IDirect3DDevice9* dev, CGxShader* vertex, CGxShader* pixe
     if (FAILED(dev->CreatePixelShader(psEntry->bytecode.data(), &p))) return nullptr;
     Pair& pair = pairs[key];
     pair.vs = std::move(vOwner); pair.ps.reset(p); pair.pixel = psEntry;
+    slot = {vertex, vcode, vsize, pixel, pcode, psize, layers, &pair, true};
     return &pair;
 }
 
@@ -269,20 +312,35 @@ bool Draw(void* raw, int type, int base, unsigned minimum, unsigned count, unsig
         valid = SUCCEEDED(dev->GetSamplerState(now.slots[s], D3DSAMP_ADDRESSV, &samplers[s][1])) && valid;
     }
     D3DVERTEXBUFFER_DESC desc = {};
-    D3DVERTEXELEMENT9 elements[MAXD3DDECLLENGTH + 1] = {};
-    UINT elementCount = MAXD3DDECLLENGTH + 1;
     bool position = false, normal = false, color = false;
-    if (decl && SUCCEEDED(decl->GetDeclaration(elements, &elementCount)))
-        for (UINT i = 0; i < elementCount && i < MAXD3DDECLLENGTH; ++i) {
-            const auto& e = elements[i];
-            if (e.Stream != 0 || e.Method != D3DDECLMETHOD_DEFAULT || e.UsageIndex != 0) continue;
-            if (e.Usage == D3DDECLUSAGE_POSITION && e.Offset == 0 && e.Type == D3DDECLTYPE_FLOAT3) position = true;
-            if (e.Usage == D3DDECLUSAGE_NORMAL && e.Offset == 12 && e.Type == D3DDECLTYPE_FLOAT3) normal = true;
-            if (e.Usage == D3DDECLUSAGE_COLOR && e.Offset == 24 && e.Type == D3DDECLTYPE_D3DCOLOR) color = true;
+    if (decl && decl == lastCheckedDecl) {
+        position = normal = color = lastDeclValid;
+    } else if (decl) {
+        D3DVERTEXELEMENT9 elements[MAXD3DDECLLENGTH + 1] = {};
+        UINT elementCount = MAXD3DDECLLENGTH + 1;
+        if (SUCCEEDED(decl->GetDeclaration(elements, &elementCount))) {
+            for (UINT i = 0; i < elementCount && i < MAXD3DDECLLENGTH; ++i) {
+                const auto& e = elements[i];
+                if (e.Stream != 0 || e.Method != D3DDECLMETHOD_DEFAULT || e.UsageIndex != 0) continue;
+                if (e.Usage == D3DDECLUSAGE_POSITION && e.Offset == 0 && e.Type == D3DDECLTYPE_FLOAT3) position = true;
+                if (e.Usage == D3DDECLUSAGE_NORMAL && e.Offset == 12 && e.Type == D3DDECLTYPE_FLOAT3) normal = true;
+                if (e.Usage == D3DDECLUSAGE_COLOR && e.Offset == 24 && e.Type == D3DDECLTYPE_D3DCOLOR) color = true;
+            }
         }
+        lastCheckedDecl = decl;
+        lastDeclValid = (position && normal && color);
+    }
+    UINT vb0Size = 0;
+    if (vb0 && vb0 == lastCheckedVb0 && lastVb0Size > 0) {
+        vb0Size = lastVb0Size;
+    } else if (vb0 && SUCCEEDED(vb0->GetDesc(&desc))) {
+        vb0Size = desc.Size;
+        lastCheckedVb0 = vb0;
+        lastVb0Size = desc.Size;
+    }
     const uint64_t rebase = uint64_t(off0) + uint64_t(base) * stride0;
-    valid = position && normal && color && vb0 && SUCCEEDED(vb0->GetDesc(&desc)) && stride0 >= 28 &&
-            frequency0 == 1 && frequency1 == 1 && rebase + uint64_t(minimum + count) * stride0 <= desc.Size && valid;
+    valid = position && normal && color && vb0 && vb0Size > 0 && stride0 >= 28 &&
+            frequency0 == 1 && frequency1 == 1 && rebase + uint64_t(minimum + count) * stride0 <= vb0Size && valid;
     bool applied = false;
     if (valid) {
         applied = SUCCEEDED(dev->SetStreamSource(0, vb0, static_cast<UINT>(rebase), stride0));
