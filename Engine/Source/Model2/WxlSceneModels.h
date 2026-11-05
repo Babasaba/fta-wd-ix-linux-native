@@ -57,6 +57,8 @@ template<class Scene, class Operation> void WxlVisitSceneModels(Scene* scene, Op
     auto& pending = scratch.pending;
     auto& seen = scratch.seen;
     auto seed = [&](Model* model) {
+        // Static doodads with no attachments or parent never have equipment palettes or item physics.
+        if (!model->m_attachParent && !model->m_attachList) return;
         uint32_t depth = 0;
         while (model->m_attachParent && model->m_attachParent->m_scene == scene) {
             if (++depth >= 256) return;
