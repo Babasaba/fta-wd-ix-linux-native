@@ -3660,15 +3660,25 @@ void CWorldScene::CullDoodads(CSortEntry* entry, uint16_t fadeLevel) {
         }
 
         if (visible) {
-            // T-CLI-10: Sub-pixel screen-size culling for distant static doodads.
-            // Skips tiny clutter (pebbles, mini-mushrooms) whose projected pixel diameter
-            // is under ~6 pixels on a 1440p viewport at distance (> 15m).
-            // Landmark trees and giant mushrooms have large radii (>= 3m) and are never culled.
+            // T-CLI-10: Fog cutoff and sub-pixel screen-size culling for distant static doodads.
             float dx = doodadDef->m_sphere.c.x - CWorldScene::s_activeWorldView.x;
             float dy = doodadDef->m_sphere.c.y - CWorldScene::s_activeWorldView.y;
             float dz = doodadDef->m_sphere.c.z - CWorldScene::s_activeWorldView.z;
             float distSq = dx * dx + dy * dy + dz * dz;
-            if (distSq > 225.0f && (doodadDef->m_sphere.r * doodadDef->m_sphere.r < distSq * 2.5e-5f)) {
+
+            // Fog cutoff: in foggy zones (e.g. Zangarmarsh), doodads whose front-most edge
+            // is past the opaque fog boundary are 100% hidden by fog. Landmark doodads
+            // (level >= 3, e.g. giant mushroom caps, landmark trees) are exempt.
+            float maxFogDist = CWorld::farFog + CWorldScene::s_fogFovPadding + 20.0f;
+            if (doodadDef->m_fadeLevel < 3) {
+                float dist = CMap::s_useSSE ? sqrtf(distSq) : sqrt(distSq);
+                if (dist - doodadDef->m_sphere.r > maxFogDist) {
+                    visible = false;
+                }
+            }
+
+            // Sub-pixel screen-size culling: skip clutter under ~10 pixels on screen at distance (> 15m).
+            if (visible && distSq > 225.0f && (doodadDef->m_sphere.r * doodadDef->m_sphere.r < distSq * 4.5e-5f)) {
                 visible = false;
             }
         }
@@ -3942,12 +3952,23 @@ void CWorldScene::CullDoodadsExterior(TSList<CMapBaseObjLink, TSGetExplicitLink<
 
                 bool visible = !culled && CWorldOcclusion::QueryBuffer(doodadDef->m_sphere.c, doodadDef->m_sphere.r, 0x10) < 2;
                 if (visible) {
-                    // T-CLI-10: Sub-pixel screen-size culling for distant static doodads.
+                    // T-CLI-10: Fog cutoff and sub-pixel screen-size culling for distant static doodads.
                     float dx = doodadDef->m_sphere.c.x - CWorldScene::s_activeWorldView.x;
                     float dy = doodadDef->m_sphere.c.y - CWorldScene::s_activeWorldView.y;
                     float dz = doodadDef->m_sphere.c.z - CWorldScene::s_activeWorldView.z;
                     float distSq = dx * dx + dy * dy + dz * dz;
-                    if (distSq > 225.0f && (doodadDef->m_sphere.r * doodadDef->m_sphere.r < distSq * 2.5e-5f)) {
+
+                    // Fog cutoff: in foggy zones, doodads whose front edge is past the opaque fog boundary are skipped.
+                    float maxFogDist = CWorld::farFog + CWorldScene::s_fogFovPadding + 20.0f;
+                    if (doodadDef->m_fadeLevel < 3) {
+                        float dist = CMap::s_useSSE ? sqrtf(distSq) : sqrt(distSq);
+                        if (dist - doodadDef->m_sphere.r > maxFogDist) {
+                            visible = false;
+                        }
+                    }
+
+                    // Sub-pixel screen-size culling: skip clutter under ~10 pixels on screen at distance (> 15m).
+                    if (visible && distSq > 225.0f && (doodadDef->m_sphere.r * doodadDef->m_sphere.r < distSq * 4.5e-5f)) {
                         visible = false;
                     }
                 }
