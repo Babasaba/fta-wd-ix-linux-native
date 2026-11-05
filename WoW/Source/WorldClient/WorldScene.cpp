@@ -22,19 +22,25 @@
 float CWorldScene::s_fadeSizeDefault[5] = { 1.0f, 4.0f, 15.0f, 100.0f, 100000.0f };
 
 // STATIC: 0x00ADF364
-float CWorldScene::s_fadeDistDefault[5] = { 30.0f, 100.0f, 200.0f, 750.0f, 1250.0f };
+// T-CLI-09: Rebalance fade distances for dense outdoor zones.
+// Level 0 (<=1m, pebbles/flowers): 25m.
+// Level 1 (<=4m, small shrubs, medium ground fungi): 55m (with 1.5x detail -> 82.5m, down from 150m).
+// Level 2 (<=15m, large bushes, trees): 130m (with 1.5x detail -> 195m, down from 300m).
+// Level 3 (<=100m, landmark giant Zangarmarsh mushroom trees, towers): 750m (UNTOUCHED, visible up to 1.1 km).
+// Level 4 (>100m, giant structures): 1250m (UNTOUCHED).
+float CWorldScene::s_fadeDistDefault[5] = { 25.0f, 55.0f, 130.0f, 750.0f, 1250.0f };
 
 // STATIC: 0x00ADF38C
 float CWorldScene::s_fadeRangeDefault[5] = { 5.0f, 10.0f, 15.0f, 20.0f, 50.0f };
 
 // STATIC: 0x00ADF3A0
-float CWorldScene::s_fadeDist[5] = { 30.0f, 100.0f, 200.0f, 750.0f, 1250.0f };
+float CWorldScene::s_fadeDist[5] = { 25.0f, 55.0f, 130.0f, 750.0f, 1250.0f };
 
 // STATIC: 0x00ADF3C8
-float CWorldScene::s_fadeDistMin[5] = { 25.0f, 90.0f, 185.0f, 730.0f, 1200.0f };
+float CWorldScene::s_fadeDistMin[5] = { 20.0f, 45.0f, 115.0f, 730.0f, 1200.0f };
 
 // STATIC: 0x00ADF3DC
-float CWorldScene::s_fadeDistMinSqr[5] = { 625.0f, 8100.0f, 34225.0f, 532900.0f, 1440000.0f };
+float CWorldScene::s_fadeDistMinSqr[5] = { 400.0f, 2025.0f, 13225.0f, 532900.0f, 1440000.0f };
 
 // STATIC: 0x00ADF6A8
 TSExplicitList<CWFrustum, offsetof(CWFrustum, m_link)> CWorldScene::frustumFreeList;
