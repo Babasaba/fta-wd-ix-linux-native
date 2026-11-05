@@ -4024,6 +4024,15 @@ void CWorldScene::CullChunks(CSortEntry* entry, uint32_t index) {
             CWorldScene::CullDoodadsExterior(&chunk->m_doodadDefLinkList, CWorldView::GetFadeLevelForDistance(chunk->m_distToCamera));
 
             if (CWorldScene::frustumStack[CWorldScene::frustumIndex].Cull(chunk->m_bbox2) && !CWorldOcclusion::QueryBuffer(&chunk->m_bbox2, 0)) {
+                // T-CLI-09: Terrain chunk fog cutoff. In dense fog (e.g. Zangarmarsh), chunks beyond
+                // (farFog + s_fogFovPadding + 33.3m safety margin) are 100% opaque fog color. Rendering them
+                // causes hundreds of wasted draw calls and multi-layer splat texture uploads.
+                float maxFogRenderDist = CWorld::farFog + CWorldScene::s_fogFovPadding + 33.333332f;
+                if (chunk->m_distToCamera > maxFogRenderDist) {
+                    chunk = next;
+                    continue;
+                }
+
                 if (chunk->m_header->m_holes != 0xFFFF) {
                     CWorldScene::s_chunksRendered++;
                     chunk->RenderPrep();
