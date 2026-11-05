@@ -725,5 +725,10 @@ uint32_t GetM2CvarFlags() {
         flags |= 0x100;
     }
 
+    if (s_M2FasterVar) {
+        int32_t debugVal = s_M2FasterDebugVar ? s_M2FasterDebugVar->m_intValue : 0;
+        flags = (flags & ~0xE000u) | GetM2FasterModifierMask(s_M2FasterVar->m_intValue, debugVal);
+    }
+
     return flags | 0x8;
 }
