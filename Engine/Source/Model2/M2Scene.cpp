@@ -1824,6 +1824,24 @@ int32_t CM2Scene::Animate(const C3Vector& cameraPos) {
             continue;
         }
 
+        // Screen-size culling for distant sub-pixel doodads:
+        // Only applies to static world doodads (m_flags & 0x20) without attachments.
+        // Never culls units, player characters, interactive items, or anything close.
+        if ((model->m_flags & 0x20) && !model->m_attachParent) {
+            const float d0 = model->m_matrixF4.d0;
+            const float d1 = model->m_matrixF4.d1;
+            const float d2 = model->m_matrixF4.d2;
+            const float distSq = d0 * d0 + d1 * d1 + d2 * d2;
+            if (distSq > 100.0f) {
+                const float radius = model->m_shared->m_data->m_bounds.m_radius;
+                const float rSq = radius * radius * model->m_scaleSq;
+                // Projected radius < ~3.5 pixels on a 1440p viewport (rSq / distSq < 6.25e-6f)
+                if (rSq < distSq * 6.25e-6f) {
+                    continue;
+                }
+            }
+        }
+
         CM2Lighting* lighting = model->m_currentLighting;
         M2Data* data = model->m_shared->m_data;
         int32_t above = lighting->m_flags & 0x20;

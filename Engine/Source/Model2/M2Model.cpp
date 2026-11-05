@@ -446,7 +446,7 @@ int32_t CM2Model::IsBatchDoodadCompatible(M2Batch* batch) {
     if ((cacheFlags & 0x20) && (this->m_fFlags & 0x10) && (this->m_shared->m_data->m_bones.m_count > 1 || !(cacheFlags & 0x40)) && (batch->m_flags & 0x10)) {
         CM2Lighting* lighting = this->m_currentLighting;
 
-        if (!lighting || !lighting->m_lightCount) {
+        if (!lighting || lighting->m_lightCount <= 4) {
             return 1;
         }
     }
